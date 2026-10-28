@@ -38,16 +38,17 @@ To build again without changing anything: **Actions → Build Mac plugins → Ru
   track notes and transport go to the page; chords, saved songs, and files come back.
 - Songs are saved inside your DAW project.
 
-## Building on your own Mac (optional)
+## Building in Xcode on your own Mac (optional)
 
-Needs Xcode and CMake (`brew install cmake`):
+Needs Xcode and CMake (`brew install cmake`). From the project folder:
 
 ```
-cmake -S . -B build -G Xcode
-cmake --build build --config Release
+cmake -S . -B build-xcode -G Xcode -DHC_COPY_PLUGINS=ON
+open build-xcode/HumAndChord.xcodeproj
 ```
 
-The plugins end up in `build/*_artefacts/Release/`.
+Pick a scheme (for example `HumAndChordMidiFX_AU`) and press Build. With `HC_COPY_PLUGINS=ON`,
+each plugin is installed into `~/Library/Audio/Plug-Ins` after it builds.
 
 Built with [JUCE](https://juce.com) 8. JUCE is free for personal use; check its license
 before selling anything built with it.

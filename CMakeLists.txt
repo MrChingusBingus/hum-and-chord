@@ -10,6 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Linux desktop libraries (no web view is linked).
 option(HC_CHECK_ONLY "Only compile the plugin's own sources" OFF)
 
+# Set HC_COPY_PLUGINS=ON to install each plugin into ~/Library/Audio/Plug-Ins after it builds.
+option(HC_COPY_PLUGINS "Copy plugins to the plug-in folders after building" OFF)
+
 include(FetchContent)
 FetchContent_Declare(JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
@@ -48,7 +51,7 @@ function(hc_add_plugin target)
         MICROPHONE_PERMISSION_TEXT "Hum and Chord listens to your singing or playing to suggest chords."
         VST3_CATEGORIES          Fx Analyzer
         AU_MAIN_TYPE             ${HC_AU_TYPE}
-        COPY_PLUGIN_AFTER_BUILD  FALSE)
+        COPY_PLUGIN_AFTER_BUILD  ${HC_COPY_PLUGINS})
 
     target_sources(${target} PRIVATE
         Source/PluginProcessor.cpp
