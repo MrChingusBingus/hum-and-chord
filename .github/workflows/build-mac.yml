@@ -37,11 +37,16 @@ jobs:
           cp packaging/READ-ME-FIRST.txt dist/
           ditto -c -k --keepParent dist Hum-and-Chord-mac.zip
 
+      - name: Make the installer (.pkg)
+        run: bash packaging/make-installer.sh build
+
       - name: Upload build
         uses: actions/upload-artifact@v4
         with:
           name: Hum-and-Chord-mac
-          path: Hum-and-Chord-mac.zip
+          path: |
+            Hum-and-Chord-mac.zip
+            dist-installer/*.pkg
 
       - name: Publish to the Releases page
         if: github.ref == 'refs/heads/main'
@@ -49,14 +54,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest Hum-and-Chord-mac.zip \
+          gh release create latest Hum-and-Chord-mac.zip dist-installer/*.pkg \
             --title "Hum and Chord for Mac (latest build)" \
-            --notes "Download Hum-and-Chord-mac.zip, unzip it, and follow READ-ME-FIRST.txt. Built from ${{ github.sha }}."
+            --notes "Download the .pkg installer and double-click it (see the README if macOS asks you to allow it), or use Hum-and-Chord-mac.zip and its READ-ME-FIRST.txt. Built from ${{ github.sha }}."
 
-      - name: Check the Audio Units with Apple's validator
+      - name: Install with the .pkg, then check the Audio Units with Apple's validator
         run: |
-          mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R dist/*.component ~/Library/Audio/Plug-Ins/Components/
+          sudo installer -pkg dist-installer/*.pkg -target /
+          ls "/Library/Audio/Plug-Ins/Components/Hum and Chord.component" \
+             "/Library/Audio/Plug-Ins/Components/Hum and Chord Audio.component" \
+             "/Library/Audio/Plug-Ins/VST3/Hum and Chord.vst3" \
+             "/Applications/Hum and Chord.app" > /dev/null
           killall -9 AudioComponentRegistrar || true
           sleep 5
           auval -v aumi Hmfx Hmch

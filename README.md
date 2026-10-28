@@ -50,5 +50,20 @@ open build-xcode/HumAndChord.xcodeproj
 Pick a scheme (for example `HumAndChordMidiFX_AU`) and press Build. With `HC_COPY_PLUGINS=ON`,
 each plugin is installed into `~/Library/Audio/Plug-Ins` after it builds.
 
+## Making an installer
+
+```
+bash packaging/make-installer.sh build-xcode   # uses your Xcode Release build
+bash packaging/make-installer.sh               # or: builds everything for Apple Silicon + Intel first
+```
+
+This makes `dist-installer/Hum-and-Chord-<version>.pkg`, a normal Mac installer that puts both
+Logic plugins, the VST3, and the app in the system folders. GitHub builds the same installer on
+every push and puts it on the Releases page.
+
+To share it with other people without macOS warnings, you need a paid Apple Developer account.
+Set `DEVELOPER_ID_APPLICATION`, `DEVELOPER_ID_INSTALLER` and `NOTARY_PROFILE` before running the
+script (see the top of the script).
+
 Built with [JUCE](https://juce.com) 8. JUCE is free for personal use; check its license
 before selling anything built with it.
