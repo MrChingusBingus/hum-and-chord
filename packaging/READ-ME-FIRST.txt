@@ -1,0 +1,30 @@
+HUM AND CHORD FOR MAC
+
+INSTALL
+1. Open Terminal (Applications > Utilities > Terminal).
+2. Type  bash  and a space, drag Install.command from this folder into the
+   Terminal window, and press Return.
+   (Running it this way avoids macOS blocking a script from the internet.)
+3. Quit and reopen Logic and Reaper.
+
+LOGIC
+- On a software instrument track, click the MIDI FX slot (above the
+  instrument) and choose Audio Units > Hum and Chord > Hum and Chord.
+- Press play. Listen mode shows the key and a chord for every bar.
+- With Logic stopped, play your keyboard and Play mode suggests what to
+  play next.
+- Chords you click play through the track's instrument. Record-enable the
+  track to record them.
+- If it doesn't appear: Logic Pro > Settings > Plug-in Manager, find
+  Hum and Chord, and click "Reset & Rescan Selection".
+
+REAPER
+- Options > Preferences > Plug-ins > VST, click "Re-scan".
+- On a track, add "VST3i: Hum and Chord" to the FX chain, ABOVE your
+  instrument, so the instrument plays the chords you click.
+
+YOUR SONGS
+- Songs you build in the plugin are saved inside your Logic or Reaper
+  project.
+- Singing needs the microphone, which plugins can't use. Use the browser
+  version (hum-and-chord.html in Chrome) or the Hum and Chord app for that.
