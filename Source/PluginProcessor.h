@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "AudioAnalyser.h"
 #include <array>
 #include <atomic>
 #include <vector>
@@ -60,6 +61,11 @@ public:
     void queueOutgoing (juce::uint8 status, juce::uint8 data1, juce::uint8 data2, double delayMs);
     void sendAllNotesOff();
 
+    // Audio analysis (for plugins on audio tracks). The editor turns it on while open.
+    void setAnalysisWanted (bool shouldAnalyse) noexcept { analysisWanted.store (shouldAnalyse); }
+    bool hasAudioInput() const { return getTotalNumInputChannels() > 0; }
+    void analyseAudio (std::vector<AudioFrame>& out); // message thread only
+
     juce::String getSavedState() const;
     void setSavedStateFromEditor (const juce::String& json);
     int getStateVersion() const noexcept { return stateVersion.load(); }
@@ -75,6 +81,26 @@ private:
     juce::AbstractFifo outFifo { fifoSize };
     std::array<Outgoing, fifoSize> outBuffer;
     std::vector<Outgoing> pendingOut; // audio thread only
+
+    // ---- audio analysis: audio thread side ----
+    void feedAnalysis (const juce::AudioBuffer<float>&, int numInputs, const TransportInfo&);
+    static constexpr int audioFifoSize = 1 << 17;
+    std::atomic<bool> analysisWanted { false };
+    std::atomic<double> analysisRate { 12000.0 };
+    int decimation = 4, decimationPhase = 0;
+    juce::IIRFilter antiAlias1, antiAlias2;
+    std::vector<float> monoScratch, decimatedScratch;
+    juce::AbstractFifo audioFifo { audioFifoSize };
+    std::vector<float> audioBuffer = std::vector<float> ((size_t) audioFifoSize, 0.0f);
+    struct Marker { juce::int64 index; double ppq, bpm; bool playing; };
+    juce::AbstractFifo markerFifo { 1024 };
+    std::array<Marker, 1024> markerBuffer;
+    juce::int64 samplesWritten = 0;
+
+    // ---- audio analysis: message thread side ----
+    AudioAnalyser analyser;
+    std::vector<Marker> markers;
+    std::vector<juce::int64> frameCentres;
 
     mutable juce::SpinLock transportLock;
     TransportInfo transport;

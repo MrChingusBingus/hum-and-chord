@@ -274,6 +274,7 @@ kbd{font:500 10.5px var(--f-mono);border:1px solid var(--line);border-bottom-wid
   .brand{font-size:20px}
 }
 :root.in-host .web-only{display:none!important}
+:root:not(.host-audio-on) .host-audio{display:none!important}
 :root:not(.in-host) .host-only{display:none!important}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -307,6 +308,11 @@ kbd{font:500 10.5px var(--f-mono);border:1px solid var(--line);border-bottom-wid
       <p>Notes from this track go to <b>Listen</b> while your DAW is playing, and to <b>Play</b> when it's stopped, so you can try chords on your keyboard.</p>
       <div class="toggles"><label><input type="checkbox" id="optToTrack" checked> Send chords I click to this track's instrument</label></div>
     </div>
+    <div class="group host-audio">
+      <label class="label" for="optAudioKind">The audio on this track is</label>
+      <select id="optAudioKind"><option value="auto">Work it out for me</option><option value="notes">One note at a time (voice, bass, lead)</option><option value="chords">Chords or a full mix</option></select>
+      <p>Single notes give the most accurate results. For chords and mixes it reads which notes are sounding, which finds the key well and gives a good first guess for each bar.</p>
+    </div>
     <div class="group web-only">
       <div class="label">MIDI inputs</div>
       <div id="portList"><p>Press Connect at the top to see your MIDI devices.</p></div>
@@ -332,7 +338,9 @@ kbd{font:500 10.5px var(--f-mono);border:1px solid var(--line);border-bottom-wid
     <div class="group host-only">
       <div class="label">Using the plugin</div>
       <p><b>Logic:</b> put Hum and Chord in the track's MIDI FX slot, above the instrument. Chords you click play through that instrument.</p>
-      <p><b>Reaper:</b> add the Hum and Chord VST3 to the track's FX, before your instrument.</p>
+      <p><b>Logic audio tracks:</b> put "Hum and Chord Audio" in an Audio FX slot. It listens to what's recorded, or to you live if the track is record-enabled with input monitoring on.</p>
+      <p><b>Reaper:</b> add the Hum and Chord VST3 to any track. On a MIDI track, put it before your instrument.</p>
+      <p><b>Singing:</b> use it on an audio track with your mic, turn on input monitoring, and press Start listening in Sing.</p>
       <p>Your songs are saved inside your DAW project.</p>
     </div>
     <div class="group web-only">
@@ -752,7 +760,7 @@ const S={
   keyLock:null, phrase:examplePhrase(), phraseIsExample:true,
   listening:false, live:null, curNote:null, preview:null, previewRoot:null, octave:4, midiNames:null, midiState:'off'
 };
-const opt={autoAdd:true,latch:false,names:true,midiSound:false,easy:true,sound:true,sendToTrack:true};
+const opt={autoAdd:true,latch:false,names:true,midiSound:false,easy:true,sound:true,sendToTrack:true,audioKind:'auto'};
 const SECTION_NAMES=['Intro','Verse','Pre-chorus','Chorus','Bridge','Solo','Outro'];
 const uid=()=>Math.random().toString(36).slice(2,10);
 function newSong(name){return {id:uid(),name:name||'Untitled song',sections:[{id:uid(),name:'Verse',chords:[]},{id:uid(),name:'Chorus',chords:[]}],groove:'rock',bpm:110,bars:1,drumVol:70,transpose:0,example:false};}
@@ -1585,13 +1593,17 @@ function loop(){
   const now=performance.now(); let rms=0; for(let i=0;i<tbuf.length;i++) rms+=tbuf[i]*tbuf[i]; rms=Math.sqrt(rms/tbuf.length);
   let mf=null;
   if(now>muteUntil&&rms>0.01){const f=yin(tbuf,actx.sampleRate);if(f&&f>65&&f<1100) mf=69+12*Math.log2(f/440);}
-  if(mf!=null){recent.push(mf);if(recent.length>5)recent.shift();}else recent.length=0;
-  const sm=recent.length>=3?median(recent):null;
+  singStep(mf,now,5,3,6);
+}
+// mf: detected pitch (MIDI, fractional) or null. The window sizes depend on how often frames arrive.
+function singStep(mf,now,medN,minN,holdN){
+  if(mf!=null){recent.push(mf);if(recent.length>medN)recent.shift();}else recent.length=0;
+  const sm=recent.length>=minN?median(recent):null;
   trace.push({t:now,m:sm}); while(trace.length&&trace[0].t<now-8500) trace.shift();
   const r=sm!=null?Math.round(sm):null;
   if(r===cand) candCount++; else {cand=r;candCount=1;}
   let changed=false;
-  if(candCount===6){
+  if(candCount===holdN){
     const curM=S.curNote?S.curNote.midi:null;
     if(r!==curM){ endNote(now-100); if(r!=null) S.curNote={midi:r,start:now-100}; changed=true; }
   }
@@ -1617,6 +1629,13 @@ function scrollKeyIntoView(m){
   const x=el.offsetLeft, w=sc.clientWidth; if(x<sc.scrollLeft+30||x>sc.scrollLeft+w-60) sc.scrollTo({left:x-w/2,behavior:'smooth'});
 }
 async function startMic(){
+  if(HOST){
+    $('#micAlert').innerHTML='';
+    if(!S.hostAudio){$('#micAlert').innerHTML='<div class="alert">To sing into the plugin, put Hum and Chord on an audio track (in Logic, "Hum and Chord Audio"), record-enable it and turn on input monitoring.</div>';return;}
+    S.listening=true; A.heardAt=0; $('#micBtn').textContent='Stop listening'; renderStatus(); updateTuner();
+    setTimeout(()=>{if(S.listening&&!A.heardAt)$('#micAlert').innerHTML='<div class="alert">No sound is reaching the plugin yet. Record-enable the track and turn on input monitoring, then sing.</div>';},3500);
+    return;
+  }
   $('#micAlert').innerHTML='';
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#micAlert').innerHTML='<div class="alert">This browser can\'t use the microphone here. Open this file in Chrome or Edge.</div>';return;}
   try{
@@ -1791,6 +1810,8 @@ const L={src:'example',notes:[],sounding:new Map(),ignored:new Set(),
   origin:null,lastNote:0,lastMsg:0,bpm:null,bpb:4,
   fileName:'',fileBpm:120,tracks:[],trackOn:null,over:{},sel:null,ver:0,cache:null,gridSig:''};
 const BAR_W=92, MAX_BARS=128;
+L.chroma=[];
+const A={note:null,cand:null,candN:0,prevPpq:null,now:null,at:0,heardAt:0};
 (function exampleSeq(){
   const prog=[[43,[67,71,74,71]],[40,[67,71,64,67]],[36,[64,67,72,67]],[38,[66,69,74,72]],[43,[71,74,79,74]],[40,[71,67,64,67]],[36,[72,69,67,64]],[38,[66,69,72,74]]];
   prog.forEach(([bass,mel],bar)=>{L.notes.push({m:bass,s:bar*4,e:bar*4+3.9,v:96,trk:1});mel.forEach((m,i)=>L.notes.push({m,s:bar*4+i,e:bar*4+i+0.9,v:88,trk:0}));});
@@ -1809,7 +1830,7 @@ function lsBeatNow(){
 }
 function lsReset(src){
   L.src=src; L.notes=[]; L.sounding.clear(); L.ignored.clear(); L.origin=null; L.over={}; L.sel=null;
-  L.tracks=[]; L.trackOn=null; L.bpb=4; L.ver++; lsStopPlay();
+  L.tracks=[]; L.trackOn=null; L.bpb=4; L.chroma=[]; A.note=null; A.cand=null; L.ver++; lsStopPlay();
 }
 function lsTouch(){L.lastMsg=performance.now(); if(!lsTouch.t||performance.now()-lsTouch.t>800){lsTouch.t=performance.now();renderStatus();}}
 function lsNoteOn(m,v,beat){
@@ -1886,11 +1907,13 @@ function lsAnalyze(){
   if(L.cache&&L.cache.ver===L.ver&&L.cache.lock===S.keyLock) return L.cache;
   const nowB=L.src==='live'?(lsBeatNow()??0):0, bpb=L.bpb;
   const notes=L.notes.filter(n=>!L.trackOn||L.trackOn.has(n.trk)).map(n=>({m:n.m,s:n.s,e:n.e??Math.max(n.s+0.25,nowB),v:n.v}));
-  const out={ver:L.ver,lock:S.keyLock,key:null,how:'listen',bars:[],first:0,notes,nowBar:null};
-  if(!notes.length){ if(L.src==='live'&&lsClockActive()){out.nowBar=Math.floor(nowB/bpb);} return L.cache=out; }
-  let lastBar=Math.floor((Math.max(...notes.map(n=>n.e))-1e-3)/bpb);
+  const chroma=L.src==='live'?L.chroma:[];
+  const out={ver:L.ver,lock:S.keyLock,key:null,how:'listen',bars:[],first:0,notes,chroma,nowBar:null};
+  if(!notes.length&&!chroma.length){ if(L.src==='live'&&lsClockActive()){out.nowBar=Math.floor(nowB/bpb);} return L.cache=out; }
+  const allE=notes.map(n=>n.e).concat(chroma.length?[chroma[chroma.length-1].e]:[]), allS=notes.map(n=>n.s).concat(chroma.length?[chroma[0].s]:[]);
+  let lastBar=Math.floor((Math.max(...allE)-1e-3)/bpb);
   if(L.src==='live'){const nb=Math.floor(nowB/bpb); if(lsRunning()) lastBar=Math.max(lastBar,nb); out.nowBar=nb;}
-  let first=L.src==='live'?Math.max(0,lastBar-15):Math.floor(Math.min(...notes.map(n=>n.s))/bpb);
+  let first=L.src==='live'?Math.max(0,lastBar-15):Math.floor(Math.min(...allS)/bpb);
   if(lastBar-first+1>MAX_BARS) lastBar=first+MAX_BARS-1;
   out.first=first;
   const nb=lastBar-first+1;
@@ -1907,7 +1930,18 @@ function lsAnalyze(){
       if(ov>=0.5&&n.m<lowest[bi-first]) lowest[bi-first]=n.m;
     }
   });
-  lowest.forEach((m,i)=>{if(m<999){B[i][mod12(m)]=1;H[mod12(m)]+=0.5;}});
+  const Bacc=[...Array(nb)].map(()=>Array(12).fill(0));
+  chroma.forEach(f=>{
+    const bi=Math.floor(f.s/bpb); if(bi<first||bi>lastBar) return;
+    const d=f.e-f.s, row=W[bi-first], bacc=Bacc[bi-first];
+    for(let k=0;k<12;k++){row[k]+=f.c[k]*d*3;H[k]+=f.c[k]*d*3;bacc[k]+=f.b[k]*d;}
+  });
+  lowest.forEach((m,i)=>{
+    if(m<999){B[i][mod12(m)]=1;H[mod12(m)]+=0.5;return;}
+    const tot=Bacc[i].reduce((a,b)=>a+b,0); if(!tot) return;
+    let k=0; for(let j=1;j<12;j++) if(Bacc[i][j]>Bacc[i][k]) k=j;
+    if(Bacc[i][k]>0.3*tot){B[i][k]=1;H[k]+=0.5;}
+  });
   const distinct=H.filter(x=>x>0).length;
   let key=S.keyLock;
   if(!key){let endPc=null;if(L.src!=='live'){const lastS=Math.max(...notes.map(n=>n.s));const fin=notes.filter(n=>n.s>=lastS-0.01);endPc=mod12(Math.min(...fin.map(n=>n.m)));}
@@ -1960,7 +1994,14 @@ function renderListen(){
   // now readout
   const sel=lsSelBar(a), sounding=[...L.sounding.keys()].sort((x,y)=>x-y);
   const nowEl=$('#lsNow'), subEl=$('#lsNowSub'), lab=nowEl.previousElementSibling;
-  if(sounding.length){
+  const heard=A.now&&performance.now()-A.at<450&&A.now.voiced?A.now:null;
+  if(!sounding.length&&heard){
+    lab.textContent='Your track is playing';
+    if(heard.mono){nowEl.textContent=pcName(Math.round(heard.pitch));subEl.textContent=midiName(Math.round(heard.pitch));}
+    else{const mx=Math.max(...heard.c), pcs=heard.c.map((v,i)=>[v,i]).filter(([v])=>v>=0.45*mx).sort((p,q)=>q[0]-p[0]).slice(0,4).map(([,i])=>i);
+      const ch=detectChord(pcs.map(pc=>60+pc)); nowEl.textContent=ch&&!ch.unknown?(ch.single?pcName(ch.root):chName(ch)):pcName(pcs[0]);
+      subEl.textContent='Hearing '+pcs.map(pcName).join(' · ');}
+  }else if(sounding.length){
     const ch=detectChord(sounding); lab.textContent='Your DAW is playing';
     nowEl.textContent=ch.single?pcName(ch.root):ch.unknown?'…':chName(ch);
     subEl.textContent=sounding.map(midiName).join(' · ');
@@ -2009,7 +2050,8 @@ function drawRoll(a,barW,width){
   const cs=getComputedStyle(document.documentElement), col=n=>cs.getPropertyValue(n).trim();
   const bpb=L.bpb, x=b=>(b-a.first*bpb)/bpb*barW;
   const vis=a.notes.filter(n=>n.e>a.first*bpb);
-  let lo=60,hi=72; if(vis.length){lo=Math.min(...vis.map(n=>n.m))-2;hi=Math.max(...vis.map(n=>n.m))+2;if(hi-lo<14){const mid=(hi+lo)/2;lo=Math.floor(mid-7);hi=lo+14;}}
+  const visC=(a.chroma||[]).filter(f=>f.e>a.first*bpb);
+  let lo=60,hi=72; if(visC.length&&!vis.length){lo=58;hi=73;} else if(vis.length){lo=Math.min(...vis.map(n=>n.m))-2;hi=Math.max(...vis.map(n=>n.m))+2;if(hi-lo<14){const mid=(hi+lo)/2;lo=Math.floor(mid-7);hi=lo+14;}}
   const rowH=(h-8)/(hi-lo+1), y=m=>h-4-(m-lo+1)*rowH;
   for(let m=lo;m<=hi;m++) if(isBlack(m)){g.fillStyle=col('--line');g.globalAlpha=0.35;g.fillRect(0,y(m),width,rowH);g.globalAlpha=1;}
   const nb=a.bars.length||Math.ceil(width/barW);
@@ -2018,6 +2060,9 @@ function drawRoll(a,barW,width){
   const sel=lsSelBar(a);
   if(sel){g.fillStyle=col('--suggest');g.globalAlpha=0.08;g.fillRect((sel.bar-a.first)*barW,0,barW,h);g.globalAlpha=1;}
   g.fillStyle=col('--daw');
+  visC.forEach(f=>{const mx=Math.max(...f.c); if(!mx) return; const x0=x(f.s), w=Math.max(1.5,x(f.e)-x0);
+    f.c.forEach((v,pc)=>{if(v<0.25*mx) return; const m=60+pc; if(m<lo||m>hi) return; g.globalAlpha=0.2+0.6*v/mx; g.fillRect(x0,y(m)+0.5,w,Math.max(2,rowH-1));});});
+  g.globalAlpha=1;
   vis.forEach(n=>{const x0=x(n.s),x1=x(n.e),yy=y(n.m);g.globalAlpha=L.sounding.get(n.m)&&L.sounding.get(n.m).s===n.s?1:0.75;
     g.beginPath(); if(g.roundRect) g.roundRect(x0+0.5,yy+0.5,Math.max(3,x1-x0-1),Math.max(2,rowH-1),2); else g.rect(x0,yy,Math.max(3,x1-x0-1),Math.max(2,rowH-1)); g.fill();});
   g.globalAlpha=1;
@@ -2221,9 +2266,40 @@ function renderAll(){
   renderSong(); renderKeyboard(); renderStatus(); renderKeyChip();
 }
 bindOpt('#optToTrack','sendToTrack');
+$('#optAudioKind').value=opt.audioKind||'auto';
+$('#optAudioKind').addEventListener('change',e=>{opt.audioKind=e.target.value;save();});
 function hostRewind(x){
   if(L.src!=='live') return;
-  L.sounding.clear(); L.notes=L.notes.filter(n=>n.s<x-0.01); L.ver++;
+  L.sounding.clear(); L.notes=L.notes.filter(n=>n.s<x-0.01); L.chroma=L.chroma.filter(f=>f.s<x-0.01); A.note=null; A.cand=null; L.ver++;
+}
+// One audio frame from the plugin: [ppq, playing, rms, pitch, aperiodicity, 12 chroma, 12 bass].
+function audioFrame(f){
+  const ppq=+f[0], playing=!!f[1], rms=+f[2], pitch=+f[3], ap=+f[4], c=f.slice(5,17).map(Number), b=f.slice(17,29).map(Number);
+  const now=performance.now(), voiced=rms>0.004;
+  const top=Math.max(...c);
+  const kind=opt.audioKind||'auto';
+  const clear=voiced&&pitch>0&&ap<0.2;
+  const mono=kind==='notes'?clear:kind==='chords'?false:(clear&&top>=0.55);
+  A.now={rms,voiced,mono,pitch,c}; A.at=now; if(voiced) A.heardAt=now;
+  if(S.listening) singStep(clear?pitch:null,now,3,2,3);
+  const fb=A.prevPpq!=null&&ppq>A.prevPpq&&ppq-A.prevPpq<1?ppq-A.prevPpq:0.07;
+  A.prevPpq=ppq;
+  if(!playing){A.note=null;A.cand=null;return;}
+  if(L.src!=='live') lsReset('live');
+  if(!voiced){A.note=null;A.cand=null;return;}
+  if(mono||kind==='notes'){
+    if(!clear){A.cand=null;return;}
+    const m=Math.round(pitch);
+    if(A.note&&A.note.m===m&&ppq-A.note.e<0.35){A.note.e=ppq+fb;A.cand=null;}
+    else if(A.cand&&A.cand.m===m){ // two frames agree: start the note where the first one was
+      A.note={m,s:A.cand.s,e:ppq+fb,v:90,trk:0}; L.notes.push(A.note); A.cand=null;
+    }else A.cand={m,s:ppq};
+  }else{
+    A.note=null; A.cand=null;
+    L.chroma.push({s:ppq,e:ppq+fb,c,b});
+    if(L.chroma.length>40000) L.chroma.splice(0,8000);
+  }
+  L.ver++;
 }
 function hostTick(d){
   const t=(d&&d.t)||{}, prev=L.host;
@@ -2236,6 +2312,7 @@ function hostTick(d){
     [...L.sounding.keys()].forEach(m=>lsNoteOff(m,L.host.ppq)); L.ver++; renderStatus(); lsSoon();
   }
   if(!prev||prev.playing!==L.host.playing) renderStatus();
+  const af=(d&&d.af)||[]; if(af.length){af.forEach(audioFrame); lsSoon();}
   (d&&d.ev||[]).forEach(([st,d1,d2,ppq])=>{
     const type=st&0xF0; if((st&15)===9) return;
     if(type===0xB0){ [...L.sounding.keys()].forEach(m=>lsNoteOff(m,ppq)); [...S.held].forEach(m=>noteOff(m)); return; }
@@ -2246,10 +2323,10 @@ function hostTick(d){
 }
 if(HOST){
   HOST.addEventListener('tick',hostTick);
-  HOST.addEventListener('hostInfo',d=>{S.hostName=(d&&d.host)||'your DAW';if(/logic/i.test(S.hostName))S.hostName='Logic';if(/reaper/i.test(S.hostName))S.hostName='Reaper';renderStatus();if(S.mode==='listen')renderListen();});
+  HOST.addEventListener('hostInfo',d=>{S.hostName=(d&&d.host)||'your DAW';S.hostAudio=!!(d&&d.hasAudio);document.documentElement.classList.toggle('host-audio-on',S.hostAudio);if(/logic/i.test(S.hostName))S.hostName='Logic';if(/reaper/i.test(S.hostName))S.hostName='Reaper';renderStatus();if(S.mode==='listen')renderListen();});
   HOST.addEventListener('state',d=>{let v=null;try{v=d&&d.json?JSON.parse(d.json):null;}catch(e){}
     if(applySaved(v)){S.lastVoicing=null;renderAll();}
-    $('#optSound').checked=opt.sound;$('#optToTrack').checked=opt.sendToTrack;$('#optEasy').checked=opt.easy;$('#optNames').checked=opt.names;$('#optAutoAdd').checked=opt.autoAdd;$('#optMidiSound').checked=opt.midiSound;});
+    $('#optSound').checked=opt.sound;$('#optToTrack').checked=opt.sendToTrack;$('#optEasy').checked=opt.easy;$('#optNames').checked=opt.names;$('#optAutoAdd').checked=opt.autoAdd;$('#optMidiSound').checked=opt.midiSound;$('#optAudioKind').value=opt.audioKind||'auto';});
   HOST.addEventListener('fileOpened',d=>{if(!d||!d.b64)return;const bin=atob(d.b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);
     if(d.kind==='midi') openMidiBuffer(u.buffer,d.name||'MIDI file'); else importBackupText(new TextDecoder().decode(u));});
 }
@@ -2260,7 +2337,7 @@ requestAnimationFrame(()=>{const el=keyEls.get(48);if(el)$('#kbscroll').scrollLe
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>drawTrace());
 
 // expose pure functions for testing
-window.__hc={hostTick,toB64,L,lsAnalyze,parseSmf,loadSmfBuffer,lsNoteOn,lsNoteOff,lsSystem,lsChordMidi,setMode,renderListen,MOODS,moodKey,buildMidi,chordSheet,voiceSeq,P,PR,practiceCheck,noteOn,noteOff,startPractice,startPlayback,stopPlayback,transpose,detectChord,rankKeys,chName,suggestAfter,fitProgs,S,setSpelling,keyName,playKey,singKey};
+window.__hc={audioFrame,A,hostTick,toB64,L,lsAnalyze,parseSmf,loadSmfBuffer,lsNoteOn,lsNoteOff,lsSystem,lsChordMidi,setMode,renderListen,MOODS,moodKey,buildMidi,chordSheet,voiceSeq,P,PR,practiceCheck,noteOn,noteOff,startPractice,startPlayback,stopPlayback,transpose,detectChord,rankKeys,chName,suggestAfter,fitProgs,S,setSpelling,keyName,playKey,singKey};
 })();
 </script>
 </body>

@@ -34,6 +34,7 @@ private:
     juce::WebBrowserComponent web;
     std::unique_ptr<juce::FileChooser> chooser;
     std::vector<HostEvent> scratch;
+    std::vector<AudioFrame> frames;
     bool pageReady = false;
     int sentStateVersion = -1;
 

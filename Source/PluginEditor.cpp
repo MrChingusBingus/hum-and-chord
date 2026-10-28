@@ -20,6 +20,7 @@ HumAndChordEditor::HumAndChordEditor (HumAndChordProcessor& p)
 HumAndChordEditor::~HumAndChordEditor()
 {
     stopTimer();
+    processor.setAnalysisWanted (false);
 }
 
 juce::WebBrowserComponent::Options HumAndChordEditor::makeOptions()
@@ -73,12 +74,14 @@ void HumAndChordEditor::onReady()
 {
     pageReady = true;
     processor.clearHostEvents();
+    processor.setAnalysisWanted (processor.hasAudioInput());
     sendState();
 
     auto* info = new juce::DynamicObject();
     info->setProperty ("host", juce::PluginHostType().getHostDescription());
     info->setProperty ("format", juce::AudioProcessor::getWrapperTypeDescription (processor.wrapperType));
     info->setProperty ("midiEffect", processor.isMidiEffect());
+    info->setProperty ("hasAudio", processor.hasAudioInput());
     web.emitEventIfBrowserIsVisible ("hostInfo", juce::var (info));
 }
 
@@ -203,8 +206,30 @@ void HumAndChordEditor::timerCallback()
     for (const auto& e : scratch)
         events.add (juce::Array<juce::var> { (int) e.status, (int) e.data1, (int) e.data2, e.ppq });
 
+    // Audio frames, flattened: ppq, playing, rms, pitch, aperiodicity, 12 chroma, 12 bass.
+    frames.clear();
+    if (processor.hasAudioInput())
+        processor.analyseAudio (frames);
+
+    juce::Array<juce::var> audio;
+    audio.ensureStorageAllocated ((int) frames.size());
+    for (const auto& f : frames)
+    {
+        juce::Array<juce::var> row;
+        row.ensureStorageAllocated (29);
+        row.add (f.ppq);
+        row.add (f.playing ? 1 : 0);
+        row.add (std::round (f.rms * 10000.0f) / 10000.0f);
+        row.add (std::round (f.pitch * 100.0f) / 100.0f);
+        row.add (std::round (f.aperiodicity * 1000.0f) / 1000.0f);
+        for (auto c : f.chroma) row.add (std::round (c * 1000.0f) / 1000.0f);
+        for (auto c : f.bass)   row.add (std::round (c * 1000.0f) / 1000.0f);
+        audio.add (row);
+    }
+
     auto* tick = new juce::DynamicObject();
     tick->setProperty ("t", juce::var (transport));
     tick->setProperty ("ev", events);
+    tick->setProperty ("af", audio);
     web.emitEventIfBrowserIsVisible ("tick", juce::var (tick));
 }

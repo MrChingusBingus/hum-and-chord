@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Oldest macOS supported")
-project(HumAndChord VERSION 1.0.0 LANGUAGES C CXX)
+project(HumAndChord VERSION 1.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,27 +26,34 @@ else()
     set(HC_WEB TRUE)
 endif()
 
-function(hc_add_plugin target code formats is_midi_effect is_synth)
+# hc_add_plugin(<target> NAME <product name> CODE <4 chars> FORMATS <list>
+#               MIDI_EFFECT <bool> AU_TYPE <AU main type>)
+function(hc_add_plugin target)
+    cmake_parse_arguments(HC "" "NAME;CODE;MIDI_EFFECT;AU_TYPE" "FORMATS" ${ARGN})
+
     juce_add_plugin(${target}
-        COMPANY_NAME            "Hum and Chord"
+        COMPANY_NAME             "Hum and Chord"
         PLUGIN_MANUFACTURER_CODE Hmch
-        PLUGIN_CODE             ${code}
-        FORMATS                 ${formats}
-        PRODUCT_NAME            "Hum and Chord"
-        BUNDLE_ID               "com.humandchord.${target}"
-        IS_SYNTH                ${is_synth}
-        IS_MIDI_EFFECT          ${is_midi_effect}
-        NEEDS_MIDI_INPUT        TRUE
-        NEEDS_MIDI_OUTPUT       TRUE
+        PLUGIN_CODE              ${HC_CODE}
+        FORMATS                  ${HC_FORMATS}
+        PRODUCT_NAME             "${HC_NAME}"
+        BUNDLE_ID                "com.humandchord.${target}"
+        IS_SYNTH                 FALSE
+        IS_MIDI_EFFECT           ${HC_MIDI_EFFECT}
+        NEEDS_MIDI_INPUT         TRUE
+        NEEDS_MIDI_OUTPUT        TRUE
         EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-        NEEDS_WEB_BROWSER       ${HC_WEB}
-        VST3_CATEGORIES         Instrument Tools
-        AU_MAIN_TYPE            ${ARGN}
-        COPY_PLUGIN_AFTER_BUILD FALSE)
+        NEEDS_WEB_BROWSER        ${HC_WEB}
+        MICROPHONE_PERMISSION_ENABLED TRUE
+        MICROPHONE_PERMISSION_TEXT "Hum and Chord listens to your singing or playing to suggest chords."
+        VST3_CATEGORIES          Fx Analyzer
+        AU_MAIN_TYPE             ${HC_AU_TYPE}
+        COPY_PLUGIN_AFTER_BUILD  FALSE)
 
     target_sources(${target} PRIVATE
         Source/PluginProcessor.cpp
-        Source/PluginEditor.cpp)
+        Source/PluginEditor.cpp
+        Source/AudioAnalyser.cpp)
 
     target_compile_definitions(${target} PUBLIC
         JUCE_WEB_BROWSER=1
@@ -58,6 +65,7 @@ function(hc_add_plugin target code formats is_midi_effect is_synth)
         PRIVATE
             HumAndChordWeb
             juce::juce_audio_utils
+            juce::juce_dsp
             juce::juce_gui_extra
         PUBLIC
             juce::juce_recommended_config_flags
@@ -66,10 +74,15 @@ function(hc_add_plugin target code formats is_midi_effect is_synth)
 endfunction()
 
 if(APPLE)
-    # Logic: an Audio Unit MIDI effect that sits in the track's MIDI FX slot.
-    hc_add_plugin(HumAndChordMidiFX Hmfx "AU" TRUE FALSE kAudioUnitType_MIDIProcessor)
+    # Logic, software instrument tracks: goes in the MIDI FX slot.
+    hc_add_plugin(HumAndChordMidiFX NAME "Hum and Chord" CODE Hmfx
+                  FORMATS AU MIDI_EFFECT TRUE AU_TYPE kAudioUnitType_MIDIProcessor)
+
+    # Logic, audio tracks: goes in an Audio FX slot and listens to the audio.
+    hc_add_plugin(HumAndChordAudioFX NAME "Hum and Chord Audio" CODE Hmau
+                  FORMATS AU MIDI_EFFECT FALSE AU_TYPE kAudioUnitType_Effect)
 endif()
 
-# Reaper and other hosts: a VST3 that takes MIDI in and sends MIDI out,
-# plus a standalone app.
-hc_add_plugin(HumAndChord Hmvs "VST3;Standalone" FALSE TRUE kAudioUnitType_MusicDevice)
+# Reaper (any track, audio or MIDI) and the standalone app.
+hc_add_plugin(HumAndChord NAME "Hum and Chord" CODE Hmvs
+              FORMATS VST3 Standalone MIDI_EFFECT FALSE AU_TYPE kAudioUnitType_Effect)

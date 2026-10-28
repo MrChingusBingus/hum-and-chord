@@ -1,5 +1,5 @@
 #!/bin/bash
-# Installs Hum and Chord for Logic (Audio Unit) and Reaper (VST3), plus the app.
+# Installs Hum and Chord for Logic (two Audio Units) and Reaper (VST3), plus the app.
 cd "$(dirname "$0")" || exit 1
 
 COMPONENTS="$HOME/Library/Audio/Plug-Ins/Components"
@@ -10,8 +10,9 @@ mkdir -p "$COMPONENTS" "$VST3"
 # GitHub project, so clear that flag so Logic and Reaper can load them.
 xattr -dr com.apple.quarantine . 2>/dev/null
 
-rm -rf "$COMPONENTS/Hum and Chord.component" "$VST3/Hum and Chord.vst3"
-cp -R "Hum and Chord.component" "$COMPONENTS/" && echo "Installed the Audio Unit for Logic."
+rm -rf "$COMPONENTS/Hum and Chord.component" "$COMPONENTS/Hum and Chord Audio.component" "$VST3/Hum and Chord.vst3"
+cp -R "Hum and Chord.component" "$COMPONENTS/" && echo "Installed the Logic MIDI FX plugin."
+cp -R "Hum and Chord Audio.component" "$COMPONENTS/" && echo "Installed the Logic audio plugin."
 cp -R "Hum and Chord.vst3" "$VST3/" && echo "Installed the VST3 for Reaper."
 
 if [ -d "Hum and Chord.app" ]; then

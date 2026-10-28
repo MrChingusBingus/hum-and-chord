@@ -7,6 +7,7 @@ juce::AudioProcessor::BusesProperties HumAndChordProcessor::makeBuses()
     return {};
    #else
     return juce::AudioProcessor::BusesProperties()
+              .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
               .withOutput ("Output", juce::AudioChannelSet::stereo(), true);
    #endif
 }
@@ -33,19 +34,38 @@ bool HumAndChordProcessor::isBusesLayoutSupported (const BusesLayout& layouts) c
     return true;
    #else
     const auto out = layouts.getMainOutputChannelSet();
-    return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
+    const auto in  = layouts.getMainInputChannelSet();
+    return in == out && (out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono());
    #endif
 }
 
-void HumAndChordProcessor::prepareToPlay (double, int)
+void HumAndChordProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
     pendingOut.clear();
+
+    // Analysis runs on a 12 kHz copy of the audio: plenty for pitch and chords, and cheap.
+    decimation = juce::jmax (1, (int) std::lround (sampleRate / 12000.0));
+    decimationPhase = 0;
+    analysisRate.store (sampleRate / decimation);
+    const auto cutoff = juce::jmin (5000.0, 0.42 * sampleRate / decimation);
+    antiAlias1.setCoefficients (juce::IIRCoefficients::makeLowPass (sampleRate, cutoff, 0.54));
+    antiAlias2.setCoefficients (juce::IIRCoefficients::makeLowPass (sampleRate, cutoff, 1.31));
+    antiAlias1.reset();
+    antiAlias2.reset();
+
+    const auto scratchSize = (size_t) juce::jmax (512, samplesPerBlock);
+    monoScratch.assign (scratchSize, 0.0f);
+    decimatedScratch.assign (scratchSize, 0.0f);
 }
 
 void HumAndChordProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    buffer.clear(); // this plugin makes no sound of its own
+
+    // Audio passes straight through. Clear any extra outputs that have no matching input.
+    const int numInputs = getTotalNumInputChannels();
+    for (int ch = numInputs; ch < getTotalNumOutputChannels(); ++ch)
+        buffer.clear (ch, 0, buffer.getNumSamples());
 
     const int numSamples = juce::jmax (1, buffer.getNumSamples());
     double sampleRate = getSampleRate();
@@ -73,6 +93,9 @@ void HumAndChordProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         const juce::SpinLock::ScopedLockType lock (transportLock);
         transport = t;
     }
+
+    if (numInputs > 0 && buffer.getNumSamples() > 0 && analysisWanted.load())
+        feedAnalysis (buffer, numInputs, t);
 
     // 2. Copy incoming notes for the editor. The MIDI itself passes through untouched,
     //    so the track's instrument keeps playing your part.
@@ -121,6 +144,95 @@ void HumAndChordProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
             {
                 ++it;
             }
+        }
+    }
+}
+
+void HumAndChordProcessor::feedAnalysis (const juce::AudioBuffer<float>& buffer, int numInputs, const TransportInfo& t)
+{
+    if (monoScratch.empty())
+        return;
+
+    const Marker marker { samplesWritten, t.ppq, t.bpm, t.playing };
+    {
+        const auto scope = markerFifo.write (1);
+        if (scope.blockSize1 > 0)      markerBuffer[(size_t) scope.startIndex1] = marker;
+        else if (scope.blockSize2 > 0) markerBuffer[(size_t) scope.startIndex2] = marker;
+    }
+
+    const int total = buffer.getNumSamples();
+    const int chunk = (int) monoScratch.size();
+    const float gain = 1.0f / (float) numInputs;
+
+    for (int start = 0; start < total; start += chunk)
+    {
+        const int n = juce::jmin (chunk, total - start);
+
+        // Mix to mono and filter out everything above ~5 kHz before downsampling.
+        juce::FloatVectorOperations::copyWithMultiply (monoScratch.data(), buffer.getReadPointer (0, start), gain, n);
+        for (int ch = 1; ch < numInputs; ++ch)
+            juce::FloatVectorOperations::addWithMultiply (monoScratch.data(), buffer.getReadPointer (ch, start), gain, n);
+        antiAlias1.processSamples (monoScratch.data(), n);
+        antiAlias2.processSamples (monoScratch.data(), n);
+
+        int m = 0;
+        for (int i = 0; i < n; ++i)
+            if (++decimationPhase >= decimation)
+            {
+                decimationPhase = 0;
+                decimatedScratch[(size_t) m++] = monoScratch[(size_t) i];
+            }
+
+        if (m == 0)
+            continue;
+
+        if (audioFifo.getFreeSpace() < m)
+            return; // the editor fell behind; skip this block rather than block the audio thread
+
+        const auto scope = audioFifo.write (m);
+        if (scope.blockSize1 > 0)
+            std::copy_n (decimatedScratch.data(), scope.blockSize1, audioBuffer.data() + scope.startIndex1);
+        if (scope.blockSize2 > 0)
+            std::copy_n (decimatedScratch.data() + scope.blockSize1, scope.blockSize2, audioBuffer.data() + scope.startIndex2);
+        samplesWritten += m;
+    }
+}
+
+void HumAndChordProcessor::analyseAudio (std::vector<AudioFrame>& out)
+{
+    analyser.setSampleRate (analysisRate.load());
+
+    {
+        const auto scope = markerFifo.read (markerFifo.getNumReady());
+        for (int i = 0; i < scope.blockSize1; ++i) markers.push_back (markerBuffer[(size_t) (scope.startIndex1 + i)]);
+        for (int i = 0; i < scope.blockSize2; ++i) markers.push_back (markerBuffer[(size_t) (scope.startIndex2 + i)]);
+        if (markers.size() > 512)
+            markers.erase (markers.begin(), markers.end() - 512);
+    }
+
+    const auto firstNew = out.size();
+    frameCentres.clear();
+    {
+        const auto scope = audioFifo.read (audioFifo.getNumReady());
+        if (scope.blockSize1 > 0) analyser.push (audioBuffer.data() + scope.startIndex1, scope.blockSize1, out, frameCentres);
+        if (scope.blockSize2 > 0) analyser.push (audioBuffer.data() + scope.startIndex2, scope.blockSize2, out, frameCentres);
+    }
+
+    // Place each frame in the song using the transport position recorded with its audio.
+    const double rate = analyser.getSampleRate();
+    for (size_t i = 0; i < frameCentres.size(); ++i)
+    {
+        auto& frame = out[firstNew + i];
+        const auto centre = frameCentres[i];
+        const Marker* best = nullptr;
+        for (const auto& mk : markers)
+            if (mk.index <= centre && (best == nullptr || mk.index >= best->index))
+                best = &mk;
+
+        if (best != nullptr)
+        {
+            frame.playing = best->playing;
+            frame.ppq = best->ppq + (best->playing ? (double) (centre - best->index) / rate * best->bpm / 60.0 : 0.0);
         }
     }
 }

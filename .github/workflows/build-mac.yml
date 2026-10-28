@@ -26,6 +26,7 @@ jobs:
           set -e
           mkdir -p dist
           cp -R build/HumAndChordMidiFX_artefacts/Release/AU/*.component dist/
+          cp -R build/HumAndChordAudioFX_artefacts/Release/AU/*.component dist/
           cp -R build/HumAndChord_artefacts/Release/VST3/*.vst3 dist/
           cp -R build/HumAndChord_artefacts/Release/Standalone/*.app dist/
           for bundle in dist/*.component dist/*.vst3 dist/*.app; do
@@ -52,10 +53,11 @@ jobs:
             --title "Hum and Chord for Mac (latest build)" \
             --notes "Download Hum-and-Chord-mac.zip, unzip it, and follow READ-ME-FIRST.txt. Built from ${{ github.sha }}."
 
-      - name: Check the Audio Unit with Apple's validator
+      - name: Check the Audio Units with Apple's validator
         run: |
           mkdir -p ~/Library/Audio/Plug-Ins/Components
           cp -R dist/*.component ~/Library/Audio/Plug-Ins/Components/
           killall -9 AudioComponentRegistrar || true
           sleep 5
           auval -v aumi Hmfx Hmch
+          auval -v aufx Hmau Hmch

@@ -8,8 +8,9 @@ This project builds it as:
 | Build | For | How it works |
 | --- | --- | --- |
 | Audio Unit **MIDI effect** | Logic | Goes in the track's MIDI FX slot. Hears the region and your playing, and sends chords to the track's instrument. |
-| **VST3** | Reaper | Goes in the track's FX chain before the instrument. MIDI in, MIDI out. |
-| **App** | Anywhere | The same thing as a standalone Mac app. |
+| Audio Unit **audio effect** ("Hum and Chord Audio") | Logic audio tracks | Listens to the track's audio, recorded or live, like an EQ would. |
+| **VST3** | Reaper | Goes on any track. Reads MIDI and audio; on MIDI tracks it goes before the instrument. |
+| **App** | Anywhere | The same thing as a standalone Mac app, with the mic for singing. |
 
 ## Getting the plugins
 
@@ -28,6 +29,11 @@ To build again without changing anything: **Actions → Build Mac plugins → Ru
 - `Source/PluginProcessor.cpp` passes your MIDI through untouched, copies each note (with its
   beat position from the DAW) for the interface, and adds any chords the interface asks
   to play.
+- `Source/AudioAnalyser.cpp` reads audio: it tracks pitch for single-note parts (YIN) and
+  measures how much of each of the 12 notes is sounding for chords and mixes. The audio thread
+  only makes a light 12 kHz copy; the analysis runs elsewhere, so it adds no latency.
+- Listening only happens while the plugin window is open. Audio and MIDI always pass
+  through untouched.
 - `Source/PluginEditor.cpp` shows the page in a web view and connects the two:
   track notes and transport go to the page; chords, saved songs, and files come back.
 - Songs are saved inside your DAW project.

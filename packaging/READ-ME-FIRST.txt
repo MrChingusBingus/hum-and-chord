@@ -15,16 +15,27 @@ LOGIC
   play next.
 - Chords you click play through the track's instrument. Record-enable the
   track to record them.
+- On an AUDIO track, put "Hum and Chord Audio" in an Audio FX slot instead.
+  It listens to the recorded audio. To sing into it live, record-enable the
+  track and turn on input monitoring (the "I" button), then use Sing.
 - If it doesn't appear: Logic Pro > Settings > Plug-in Manager, find
   Hum and Chord, and click "Reset & Rescan Selection".
 
 REAPER
 - Options > Preferences > Plug-ins > VST, click "Re-scan".
-- On a track, add "VST3i: Hum and Chord" to the FX chain, ABOVE your
-  instrument, so the instrument plays the chords you click.
+- Add "VST3: Hum and Chord" to any track's FX chain.
+  On a MIDI track, put it ABOVE your instrument so the instrument plays the
+  chords you click. On an audio track it listens to the audio.
+
+GOOD TO KNOW
+- Hum and Chord listens while its window is open. Close it and your track
+  plays as normal.
 
 YOUR SONGS
 - Songs you build in the plugin are saved inside your Logic or Reaper
   project.
-- Singing needs the microphone, which plugins can't use. Use the browser
-  version (hum-and-chord.html in Chrome) or the Hum and Chord app for that.
+- To sing, use the plugin on an audio track with your mic (input
+  monitoring on), the Hum and Chord app, or the browser version.
+- Audio works best with one note at a time (voice, bass, a lead line).
+  For chords or a full mix it reads which notes are sounding: good for the
+  key and a first guess at each bar's chord.
